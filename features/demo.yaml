@@ -1,0 +1,38 @@
+# 示例 YAML，描述了一个包含 Git 仓库和版本的配置，并列出了相关任务
+
+describe:
+  name: ai-workflow
+  source:
+    type: git
+    repository: https://github.com/your-org/ai-workflow.git
+    version: v0.1.0
+
+tasks:
+  - uuid: 1a2b3c4d-0001-0000-0000-000000000001
+    Name: Install Dependencies
+    Prompt: Install all required project dependencies.
+    DockerImage: python:3.13
+    CommitID: v0.1.0
+    DependencyTaskID: ""
+    Status: todo
+  - uuid: 1a2b3c4d-0002-0000-0000-000000000002
+    Name: Run Tests
+    Prompt: Run all unit tests to ensure code quality.
+    DockerImage: python:3.13
+    CommitID: v0.1.0
+    DependencyTaskID: 1a2b3c4d-0001-0000-0000-000000000001
+    Status: todo
+  - uuid: 1a2b3c4d-0003-0000-0000-000000000003
+    Name: Build Docker Image
+    Prompt: Build the Docker image for deployment.
+    DockerImage: docker:latest
+    CommitID: v0.1.0
+    DependencyTaskID: 1a2b3c4d-0002-0000-0000-000000000002
+    Status: todo
+  - uuid: 1a2b3c4d-0004-0000-0000-000000000004
+    Name: Deploy
+    Prompt: Deploy the application to the target environment.
+    DockerImage: docker:latest
+    CommitID: v0.1.0
+    DependencyTaskID: 1a2b3c4d-0003-0000-0000-000000000003
+    Status: todo
