@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from core.enum.status import Status
+
+
 
 
 @dataclass(slots=True)
@@ -27,7 +30,7 @@ class Task:
     docker_image: Optional[str] = None
     commit_id: Optional[str] = None
     dependency_task_id: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[Status] = None
 
     @staticmethod
     def from_dict(raw: Dict[str, Any]) -> "Task":
@@ -39,7 +42,7 @@ class Task:
             docker_image=raw.get("DockerImage") or raw.get("docker_image"),
             commit_id=raw.get("CommitID") or raw.get("commit_id"),
             dependency_task_id=raw.get("DependencyTaskID") or raw.get("dependency_task_id"),
-            status=raw.get("Status") or raw.get("status"),
+            status=Status.parse(raw.get("Status") or raw.get("status")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -51,10 +54,10 @@ class Task:
             "DockerImage": self.docker_image,
             "CommitID": self.commit_id,
             "DependencyTaskID": self.dependency_task_id,
-            "Status": self.status,
+            "Status": self.status.value if self.status else None,
         }
 
 
-__all__ = ["Task"]
+__all__ = ["Task", "Status"]
 
 

@@ -1,3 +1,4 @@
+
 import yaml
 import os
 import sys
@@ -9,7 +10,7 @@ SRC_DIR = os.path.join(CURRENT_DIR, "src")
 if SRC_DIR not in sys.path:
     sys.path.append(SRC_DIR)
 
-from core.entity.task import Task  # type: ignore
+from core.entity.task import Task, Status  # type: ignore
 
 def print_project_info(describe):
     """Print project description information."""
@@ -32,7 +33,7 @@ def print_tasks_from_entities(tasks: List[Task]):
         ("Docker Image", lambda t: t.docker_image or "N/A"),
         ("Commit ID", lambda t: t.commit_id or "N/A"),
         ("Dependency Task ID", lambda t: t.dependency_task_id or "N/A"),
-        ("Status", lambda t: t.status or "N/A"),
+        ("Status", lambda t: t.status.value if t.status else "N/A"),
     ]
 
     for i, task in enumerate(tasks, 1):
