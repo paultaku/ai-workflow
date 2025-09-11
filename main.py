@@ -1,5 +1,15 @@
 import yaml
 import os
+import sys
+from typing import List
+
+# Ensure 'src' is importable when running this script directly.
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.join(CURRENT_DIR, "src")
+if SRC_DIR not in sys.path:
+    sys.path.append(SRC_DIR)
+
+from core.entity.task import Task  # type: ignore
 
 def print_project_info(describe):
     """Print project description information."""
@@ -10,24 +20,25 @@ def print_project_info(describe):
         print(f"Repository URL: {source.get('repository', 'N/A')}")
         print(f"Version: {source.get('version', 'N/A')}")
 
-def print_tasks(tasks):
-    """Print all tasks with their details."""
+def print_tasks_from_entities(tasks: List[Task]):
+    """Print all tasks using Task entities while keeping output identical to before."""
     print(f"Total {len(tasks)} tasks:\n")
-    
+
+    # Define the output mapping to match the previous printing format.
     task_fields = [
-        ('UUID', 'uuid'),
-        ('Name', 'Name'),
-        ('Description', 'Prompt'),
-        ('Docker Image', 'DockerImage'),
-        ('Commit ID', 'CommitID'),
-        ('Dependency Task ID', 'DependencyTaskID'),
-        ('Status', 'Status')
+        ("UUID", lambda t: t.uuid),
+        ("Name", lambda t: t.name),
+        ("Description", lambda t: t.description or "N/A"),
+        ("Docker Image", lambda t: t.docker_image or "N/A"),
+        ("Commit ID", lambda t: t.commit_id or "N/A"),
+        ("Dependency Task ID", lambda t: t.dependency_task_id or "N/A"),
+        ("Status", lambda t: t.status or "N/A"),
     ]
-    
+
     for i, task in enumerate(tasks, 1):
         print(f"Task {i}:")
-        for label, field in task_fields:
-            print(f"  {label}: {task.get(field, 'N/A')}")
+        for label, getter in task_fields:
+            print(f"  {label}: {getter(task)}")
         print()
 
 def main():
@@ -45,7 +56,9 @@ def main():
             print("-" * 50)
         
         if 'tasks' in data:
-            print_tasks(data['tasks'])
+            # Convert raw task dicts into Task entities for safer, clearer handling.
+            task_entities = [Task.from_dict(item) for item in data['tasks'] or []]
+            print_tasks_from_entities(task_entities)
         else:
             print("No task list found")
             
