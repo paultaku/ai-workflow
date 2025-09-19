@@ -1,0 +1,554 @@
+#!/usr/bin/env python3
+"""
+Cursor CLI tool for AI workflow management.
+
+This tool executes AI workflow tasks defined in YAML configuration files.
+It supports concurrent task execution with comprehensive logging and error handling.
+
+Usage:
+    python src/local/cursor.py --path ./tasks.yaml
+    python src/local/cursor.py --path ./tasks.yaml --verbose
+
+Author: AI Workflow Team
+Version: 1.0.0
+"""
+
+import argparse
+import os
+import sys
+from pathlib import Path
+import yaml
+import subprocess
+import concurrent.futures
+import threading
+import logging
+from dataclasses import dataclass
+from typing import Dict, Any, List
+
+
+# =============================================================================
+# CONFIGURATION AND SETUP
+# =============================================================================
+
+def setup_logging(verbose: bool = False) -> None:
+    """
+    Set up logging configuration.
+    
+    Args:
+        verbose: If True, set logging level to DEBUG, otherwise INFO
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    
+    # Remove existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    
+    root_logger.addHandler(console_handler)
+
+
+# =============================================================================
+# DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class TaskResult:
+    """Result of a task execution."""
+    task_uuid: str
+    task_name: str
+    success: bool
+    return_code: int
+    stdout: str
+    stderr: str
+    execution_time: float
+    error_message: str = ""
+
+
+# =============================================================================
+# CORE TASK EXECUTION FUNCTIONS
+# =============================================================================
+
+def run_task(task: Dict[str, Any]) -> TaskResult:
+    """
+    Run a single task using cursor --agent command.
+    
+    Args:
+        task: Task dictionary containing task information
+        
+    Returns:
+        TaskResult: Structured result of the task execution
+    """
+    import time
+    
+    logger = logging.getLogger(__name__)
+    
+    task_uuid = task.get('uuid', 'unknown')
+    task_name = task.get('Name', 'Unknown Task')
+    task_prompt = task.get('Prompt', '')
+    
+    logger.info(f"Starting task: {task_name} ({task_uuid})")
+    
+    start_time = time.time()
+    
+    try:
+        # Build the cursor command
+        cmd = ['cursor', 'agent',task_prompt, '-p', '--force', '--output-format', 'text']
+        
+        # Run the command and capture output
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            cwd=os.getcwd()
+        )
+        
+        execution_time = time.time() - start_time
+        
+        # Create result object
+        task_result = TaskResult(
+            task_uuid=task_uuid,
+            task_name=task_name,
+            success=result.returncode == 0,
+            return_code=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            execution_time=execution_time
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"✓ Task completed: {task_name} ({execution_time:.2f}s)")
+        else:
+            logger.error(f"✗ Task failed: {task_name} (exit code: {result.returncode})")
+            task_result.error_message = f"Command failed with exit code {result.returncode}"
+        
+        return task_result
+        
+    except subprocess.TimeoutExpired:
+        execution_time = time.time() - start_time
+        logger.error(f"⏰ Task timeout: {task_name} ({execution_time:.2f}s)")
+        return TaskResult(
+            task_uuid=task_uuid,
+            task_name=task_name,
+            success=False,
+            return_code=-1,
+            stdout="",
+            stderr="",
+            execution_time=execution_time,
+            error_message="Task execution timed out after 5 minutes"
+        )
+        
+    except FileNotFoundError:
+        execution_time = time.time() - start_time
+        logger.error(f"❌ Command not found: {task_name}")
+        return TaskResult(
+            task_uuid=task_uuid,
+            task_name=task_name,
+            success=False,
+            return_code=-1,
+            stdout="",
+            stderr="",
+            execution_time=execution_time,
+            error_message="'cursor' command not found. Please ensure cursor CLI is installed."
+        )
+        
+    except Exception as e:
+        execution_time = time.time() - start_time
+        logger.error(f"💥 Unexpected error in task: {task_name} - {str(e)}")
+        return TaskResult(
+            task_uuid=task_uuid,
+            task_name=task_name,
+            success=False,
+            return_code=-1,
+            stdout="",
+            stderr="",
+            execution_time=execution_time,
+            error_message=f"Unexpected error: {str(e)}"
+        )
+
+
+def run_tasks_concurrently(tasks: List[Dict[str, Any]], max_workers: int = 4) -> List[TaskResult]:
+    """
+    Run multiple tasks concurrently using ThreadPoolExecutor.
+    
+    Args:
+        tasks: List of task dictionaries
+        max_workers: Maximum number of concurrent workers
+        
+    Returns:
+        List[TaskResult]: List of task execution results
+    """
+    logger = logging.getLogger(__name__)
+    
+    if not tasks:
+        logger.info("No tasks to execute.")
+        return []
+    
+    logger.info(f"Starting execution of {len(tasks)} task(s) with {max_workers} worker(s)...")
+    
+    results = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(run_task, task): task 
+            for task in tasks
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_task):
+            task = future_to_task[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                # Handle exceptions that occur during task execution
+                task_uuid = task.get('uuid', 'unknown')
+                task_name = task.get('Name', 'Unknown Task')
+                logger.error(f"💥 Exception in task {task_name}: {str(e)}")
+                
+                error_result = TaskResult(
+                    task_uuid=task_uuid,
+                    task_name=task_name,
+                    success=False,
+                    return_code=-1,
+                    stdout="",
+                    stderr="",
+                    execution_time=0.0,
+                    error_message=f"Exception during execution: {str(e)}"
+                )
+                results.append(error_result)
+    
+    return results
+
+
+# =============================================================================
+# REPORTING AND SUMMARY FUNCTIONS
+# =============================================================================
+
+def print_execution_summary(results: List[TaskResult]) -> None:
+    """
+    Print a comprehensive summary of task execution results.
+    
+    Args:
+        results: List of task execution results
+    """
+    logger = logging.getLogger(__name__)
+    
+    if not results:
+        logger.info("No tasks were executed.")
+        return
+    
+    successful = [r for r in results if r.success]
+    failed = [r for r in results if not r.success]
+    total_time = sum(r.execution_time for r in results)
+    
+    logger.info(f"\n{'='*80}")
+    logger.info(f"EXECUTION SUMMARY")
+    logger.info(f"{'='*80}")
+    logger.info(f"Total tasks: {len(results)}")
+    logger.info(f"Successful: {len(successful)}")
+    logger.info(f"Failed: {len(failed)}")
+    logger.info(f"Total execution time: {total_time:.2f}s")
+    logger.info(f"{'='*80}")
+    
+    # Show successful tasks
+    if successful:
+        logger.info(f"\n✅ SUCCESSFUL TASKS ({len(successful)}):")
+        for result in successful:
+            logger.info(f"  ✓ {result.task_name} ({result.task_uuid}) - {result.execution_time:.2f}s")
+    
+    # Show failed tasks with details
+    if failed:
+        logger.error(f"\n❌ FAILED TASKS ({len(failed)}):")
+        for result in failed:
+            logger.error(f"  ✗ {result.task_name} ({result.task_uuid}) - {result.execution_time:.2f}s")
+            if result.error_message:
+                logger.error(f"    Error: {result.error_message}")
+            if result.stderr:
+                # Truncate stderr to avoid overwhelming output
+                stderr_preview = result.stderr[:200] + "..." if len(result.stderr) > 200 else result.stderr
+                logger.error(f"    Stderr: {stderr_preview}")
+            if result.stdout:
+                # Show stdout for failed tasks (might contain useful info)
+                stdout_preview = result.stdout[:200] + "..." if len(result.stdout) > 200 else result.stdout
+                logger.error(f"    Stdout: {stdout_preview}")
+    
+    # Overall status
+    if len(failed) == 0:
+        logger.info(f"\n🎉 All tasks completed successfully!")
+    else:
+        logger.error(f"\n⚠️  {len(failed)} task(s) failed out of {len(results)} total.")
+
+
+# =============================================================================
+# FILE AND YAML PROCESSING FUNCTIONS
+# =============================================================================
+
+def validate_file_path(file_path: str) -> Path:
+    """
+    Validate that the provided file path exists and is accessible.
+    
+    Args:
+        file_path: The file path to validate
+        
+    Returns:
+        Path: A Path object representing the validated file
+        
+    Raises:
+        SystemExit: If the file doesn't exist or is not accessible
+    """
+    logger = logging.getLogger(__name__)
+    path = Path(file_path)
+    
+    if not path.exists():
+        logger.error(f"File '{file_path}' does not exist.")
+        logger.error("Please check the path and try again.")
+        sys.exit(1)
+    
+    if not path.is_file():
+        logger.error(f"'{file_path}' is not a file.")
+        logger.error("Please provide a valid file path.")
+        sys.exit(1)
+    
+    if not os.access(path, os.R_OK):
+        logger.error(f"Cannot read file '{file_path}'.")
+        logger.error("Please check file permissions.")
+        sys.exit(1)
+    
+    return path
+
+
+def load_yaml_file(file_path: Path) -> dict:
+    """
+    Load and parse a YAML file safely.
+    
+    Args:
+        file_path: Path to the YAML file
+        
+    Returns:
+        dict: Parsed YAML content
+        
+    Raises:
+        SystemExit: If YAML parsing fails
+    """
+    logger = logging.getLogger(__name__)
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = yaml.safe_load(file)
+            return content
+    except yaml.YAMLError as e:
+        logger.error(f"Invalid YAML syntax in '{file_path}'.")
+        logger.error(f"YAML Error: {e}")
+        logger.error("Please check the YAML syntax and try again.")
+        sys.exit(1)
+    except UnicodeDecodeError as e:
+        logger.error(f"Cannot decode file '{file_path}' as UTF-8.")
+        logger.error(f"Encoding Error: {e}")
+        logger.error("Please ensure the file is encoded in UTF-8.")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to read file '{file_path}'.")
+        logger.error(f"Error: {e}")
+        sys.exit(1)
+
+
+def validate_yaml_content(content: dict) -> list:
+    """
+    Validate that the YAML content has the expected structure.
+    
+    Args:
+        content: Parsed YAML content
+        
+    Returns:
+        list: List of tasks from the YAML content
+        
+    Raises:
+        SystemExit: If content structure is invalid
+    """
+    logger = logging.getLogger(__name__)
+    
+    if content is None:
+        logger.error("YAML file is empty or contains no data.")
+        logger.error("Please ensure the file contains valid YAML content.")
+        sys.exit(1)
+    
+    if not isinstance(content, dict):
+        logger.error("YAML content must be a dictionary/object.")
+        logger.error(f"Found: {type(content).__name__}")
+        logger.error("Please ensure the YAML file has a proper structure.")
+        sys.exit(1)
+    
+    # Check for tasks key
+    if 'tasks' not in content:
+        logger.error("YAML file must contain a 'tasks' key.")
+        logger.error(f"Available keys: {list(content.keys())}")
+        logger.error("Please ensure the YAML file has a 'tasks' section.")
+        sys.exit(1)
+    
+    tasks = content['tasks']
+    
+    if not isinstance(tasks, list):
+        logger.error("'tasks' must be a list.")
+        logger.error(f"Found: {type(tasks).__name__}")
+        logger.error("Please ensure 'tasks' is formatted as a list.")
+        sys.exit(1)
+    
+    if len(tasks) == 0:
+        logger.warning("No tasks found in the YAML file.")
+        logger.warning("The tasks list is empty.")
+        return tasks
+    
+    logger.info(f"Successfully loaded {len(tasks)} task(s) from YAML file.")
+    return tasks
+
+
+def load_yaml(path: str) -> List[Dict[str, Any]]:
+    """
+    Load and validate a YAML configuration file containing tasks.
+    
+    This function combines file validation, YAML parsing, and content validation
+    into a single, clean interface.
+    
+    Args:
+        path: Path to the YAML configuration file
+        
+    Returns:
+        List[Dict[str, Any]]: List of validated task dictionaries
+        
+    Raises:
+        SystemExit: If file validation, YAML parsing, or content validation fails
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Step 1: Validate file path
+    config_file = validate_file_path(path)
+    logger.info(f"Configuration file validated: {config_file}")
+    
+    # Step 2: Load and parse YAML content
+    yaml_content = load_yaml_file(config_file)
+    logger.info("YAML file loaded successfully.")
+    
+    # Step 3: Validate YAML content structure
+    tasks = validate_yaml_content(yaml_content)
+    
+    logger.info("YAML processing complete!")
+    return tasks
+
+
+# =============================================================================
+# CLI ARGUMENT PARSING
+# =============================================================================
+
+def parse_args() -> argparse.Namespace:
+    """
+    Parse command line arguments.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Cursor CLI tool for AI workflow management",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --path /path/to/config.yaml
+  %(prog)s --path ./features/demo.yaml
+  %(prog)s --path ./features/demo.yaml --verbose
+        """
+    )
+    
+    parser.add_argument(
+        "--path",
+        required=True,
+        type=str,
+        help="Path to the configuration file (required)"
+    )
+    
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level)"
+    )
+    
+    return parser.parse_args()
+
+
+# =============================================================================
+# MAIN APPLICATION ENTRY POINT
+# =============================================================================
+
+def main():
+    """
+    Main entry point for the cursor CLI tool.
+    
+    Orchestrates the complete workflow:
+    1. Parse command line arguments
+    2. Set up logging
+    3. Load and validate YAML configuration
+    4. Execute tasks concurrently
+    5. Report results and exit with appropriate code
+    """
+    try:
+        # Parse command line arguments
+        args = parse_args()
+        
+        # Set up logging system
+        setup_logging(verbose=args.verbose)
+        logger = logging.getLogger(__name__)
+        
+        logger.info("Starting Cursor CLI tool...")
+        
+        # Load and validate YAML configuration
+        tasks = load_yaml(args.path)
+        logger.info(f"Ready to process {len(tasks)} task(s).")
+        
+        # Execute tasks if any are available
+        if tasks:
+            logger.info("Starting task execution...")
+            
+            # Execute tasks concurrently with 4 workers
+            results = run_tasks_concurrently(tasks, max_workers=4)
+            
+            # Print comprehensive execution summary
+            print_execution_summary(results)
+            
+            logger.info("Task execution complete!")
+            
+            # Exit with error code if any tasks failed
+            failed_tasks = [r for r in results if not r.success]
+            if failed_tasks:
+                logger.error(f"Exiting with error code due to {len(failed_tasks)} failed task(s).")
+                sys.exit(1)
+        else:
+            logger.info("No tasks to execute.")
+        
+        logger.info("Cursor CLI tool completed successfully!")
+        
+    except KeyboardInterrupt:
+        logger = logging.getLogger(__name__)
+        logger.warning("Operation cancelled by user.")
+        sys.exit(1)
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
