@@ -32,6 +32,24 @@ class Task:
     dependency_task_id: Optional[str] = None
     status: Optional[Status] = None
 
+    @classmethod
+    def create_simple(cls, name: str, status: Status = Status.PENDING) -> "Task":
+        """Create a simple task with just name and status.
+        
+        Args:
+            name: The task name
+            status: The task status (defaults to PENDING)
+            
+        Returns:
+            Task: A new Task instance with minimal required fields
+        """
+        import uuid
+        return cls(
+            uuid=str(uuid.uuid4()),
+            name=name,
+            status=status
+        )
+
     @staticmethod
     def from_dict(raw: Dict[str, Any]) -> "Task":
         """Construct a Task from a dict that uses the original YAML keys."""

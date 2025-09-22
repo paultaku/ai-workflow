@@ -44,7 +44,7 @@ def print_tasks_from_entities(tasks: List[Task]):
 
 def main():
     """Read demo.yaml file and print task information."""
-    yaml_file_path = os.path.join("features", "demo.yaml")
+    yaml_file_path = os.path.join("features", "demo-1.yaml")
     
     try:
         with open(yaml_file_path, 'r', encoding='utf-8') as file:

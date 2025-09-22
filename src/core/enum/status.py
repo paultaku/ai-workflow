@@ -7,11 +7,14 @@ from typing import Optional
 class Status(Enum):
     """Standardized task status values."""
 
+    PENDING = "pending"
+    WORK_IN_PROGRESS = "work-in-progress"
+    DONE = "done"
+    FAILED = "failed"
+    # Legacy status values for backward compatibility
     TODO = "todo"
-    IN_PROGRESS = "in-progress"
     UNDER_REVIEW = "under-review"
     BLOCKED = "blocked"
-    DONE = "done"
 
     @staticmethod
     def parse(value: Optional[str]) -> Optional["Status"]:
@@ -25,17 +28,27 @@ class Status(Enum):
         normalized = value.strip().lower().replace("_", "-").replace(" ", "-")
 
         alias_map = {
+            # New primary status values
+            "pending": Status.PENDING,
+            
+            "done": Status.DONE,
+            "complete": Status.DONE,
+            "completed": Status.DONE,
+            "failed": Status.FAILED,
+            "error": Status.FAILED,
+            "failure": Status.FAILED,
+            # Legacy status values for backward compatibility
             "todo": Status.TODO,
             "to-do": Status.TODO,
-            "in-progress": Status.IN_PROGRESS,
-            "inprogress": Status.IN_PROGRESS,
+            "work-in-progress": Status.WORK_IN_PROGRESS,
+            "workinprogress": Status.WORK_IN_PROGRESS,
+            "wip": Status.WORK_IN_PROGRESS,
+            "in-progress": Status.WORK_IN_PROGRESS,
+            "inprogress": Status.WORK_IN_PROGRESS,
             "under-review": Status.UNDER_REVIEW,
             "review": Status.UNDER_REVIEW,
             "pending-review": Status.UNDER_REVIEW,
             "blocked": Status.BLOCKED,
-            "done": Status.DONE,
-            "complete": Status.DONE,
-            "completed": Status.DONE,
         }
 
         return alias_map.get(normalized)
