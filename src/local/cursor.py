@@ -809,13 +809,21 @@ def main():
         
         logger.info("Starting Cursor CLI tool...")
         
+        # Resolve configuration file path BEFORE changing working directory,
+        # so that --path is independent of --work-dir
+        original_cwd = Path(os.getcwd())
+        config_path = Path(args.path).expanduser()
+        if not config_path.is_absolute():
+            config_path = (original_cwd / config_path).resolve()
+        config_path_str = str(config_path)
+        
         # Apply working directory
         if args.work_dir:
             os.chdir(args.work_dir)
             logger.info(f"Working directory set to: {os.getcwd()}")
         
         # Load and validate YAML configuration
-        tasks = load_yaml(args.path)
+        tasks = load_yaml(config_path_str)
         logger.info(f"Ready to process {len(tasks)} task(s).")
         
         # Execute tasks if any are available
@@ -823,7 +831,7 @@ def main():
             logger.info("Starting task execution...")
             
             # Execute tasks concurrently with 4 workers
-            results = run_tasks_concurrently(tasks, max_workers=4, yaml_file_path=args.path)
+            results = run_tasks_concurrently(tasks, max_workers=4, yaml_file_path=config_path_str)
             
             # Print comprehensive execution summary
             print_execution_summary(results, tasks)
