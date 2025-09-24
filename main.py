@@ -10,7 +10,7 @@ SRC_DIR = os.path.join(CURRENT_DIR, "src")
 if SRC_DIR not in sys.path:
     sys.path.append(SRC_DIR)
 
-from core.entity.task import Task, Status  # type: ignore
+from core.entity.task import Task
 
 def print_project_info(describe):
     """Print project description information."""

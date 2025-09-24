@@ -746,6 +746,7 @@ Examples:
   %(prog)s --path /path/to/config.yaml
   %(prog)s --path ./features/demo.yaml
   %(prog)s --path ./features/demo.yaml --verbose
+  %(prog)s --work-dir ./target --path ./features/demo-1.yaml
         """
     )
     
@@ -757,12 +758,30 @@ Examples:
     )
     
     parser.add_argument(
+        "--work-dir",
+        required=True,
+        type=str,
+        default=os.getcwd(),
+        help="Working directory to execute in (defaults to current directory)"
+    )
+    
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging (DEBUG level)"
     )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Validate --work-dir exists and is a directory
+    work_dir = Path(args.work_dir).expanduser().resolve()
+    if not work_dir.exists() or not work_dir.is_dir():
+        parser.error(f"--work-dir 路径不存在或不是目录: {work_dir}")
+    
+    # Normalize back to string for downstream usage
+    args.work_dir = str(work_dir)
+    
+    return args
 
 
 # =============================================================================
@@ -789,6 +808,11 @@ def main():
         logger = logging.getLogger(__name__)
         
         logger.info("Starting Cursor CLI tool...")
+        
+        # Apply working directory
+        if args.work_dir:
+            os.chdir(args.work_dir)
+            logger.info(f"Working directory set to: {os.getcwd()}")
         
         # Load and validate YAML configuration
         tasks = load_yaml(args.path)
